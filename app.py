@@ -9,7 +9,7 @@ import heapq
 
 app = Flask(__name__)
 
-ORS_API_KEY = "5b3ce3597851110001cf6248f555579aacd34d039838693d5989d654"
+ORS_API_KEY = os.environ.get("ORS_API_KEY")
 client = openrouteservice.Client(key=ORS_API_KEY)
 
 def geocode_ciudad(ciudad):
