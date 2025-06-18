@@ -19,13 +19,14 @@ def geocode_ciudad(ciudad):
     if data:
         lat = float(data[0]['lat'])
         lon = float(data[0]['lon'])
-        return (lat, lon)
+        return (lon, lat)  # orden correcto para ORS
     return None
 
 def obtener_ruta(partida_coords, destino_coords):
     try:
-        coords = [partida_coords[::-1], destino_coords[::-1]]  # ORS usa [lon, lat]
-        route = client.directions(coords)
+        print(f"Coordenadas para ORS: partida={partida_coords}, destino={destino_coords}")
+        coords = [partida_coords, destino_coords]  # ya están en [lon, lat]
+        route = client.directions(coords, radiuses=[1000, 1000])
         distancia_valor = route['routes'][0]['summary']['distance'] / 1000
         distancia = f"{distancia_valor:.2f} km"
         pasos = route['routes'][0]['segments'][0]['steps']
@@ -35,7 +36,7 @@ def obtener_ruta(partida_coords, destino_coords):
         coordenadas = [(latlng[1], latlng[0]) for latlng in coordenadas]
         return ruta, distancia, distancia_valor, coordenadas
     except Exception as e:
-        print("Error:", e)
+        print("Error en obtener_ruta:", e)
         return None, None, None, None
 
 def dibujar_ruta_en_mapa(coordenadas):
@@ -52,7 +53,7 @@ def distancia_euclidiana(p1, p2):
 def distancia_manhattan(p1, p2):
     return abs(p2[0] - p1[0]) + abs(p2[1] - p1[1])
 
-def construir_grafo(coordenadas, costos, tiempos, inseguridades, pesos):
+def construir_grafo(coordenadas, costos, tiempos, pesos):
     grafo = {}
     n = len(coordenadas)
     for i in range(n):
@@ -62,10 +63,9 @@ def construir_grafo(coordenadas, costos, tiempos, inseguridades, pesos):
                 # Distancias base (euclidiana para Dijkstra, Manhattan para Manhattan)
                 dist = distancia_euclidiana(coordenadas[i], coordenadas[j])
                 manh = distancia_manhattan(coordenadas[i], coordenadas[j])
-                # Calculamos el peso ponderado con costo, tiempo e inseguridad
+                # Calculamos el peso ponderado con costo, tiempo
                 peso = (costos[i][j] * pesos['costo'] +
-                        tiempos[i][j] * pesos['tiempo'] +
-                        inseguridades[i][j] * pesos['inseguridad'])
+                        tiempos[i][j] * pesos['tiempo'])
                 grafo[i][j] = peso
     return grafo
 
@@ -96,12 +96,10 @@ def dijkstra(grafo, inicio, fin):
         actual = anterior[actual]
     camino.reverse()
     return camino, distancias[fin]
-
 def calcular_distancias_matrices(coordenadas):
     n = len(coordenadas)
     costos = [[0]*n for _ in range(n)]
     tiempos = [[0]*n for _ in range(n)]
-    inseguridades = [[0]*n for _ in range(n)]
 
     for i in range(n):
         for j in range(n):
@@ -112,9 +110,7 @@ def calcular_distancias_matrices(coordenadas):
             costos[i][j] = distancia_euclidiana(coordenadas[i], coordenadas[j]) * 10
             # tiempo = distancia euclidiana * 2 (minutos)
             tiempos[i][j] = distancia_euclidiana(coordenadas[i], coordenadas[j]) * 2
-            # inseguridad = distancia euclidiana * 1 (índice arbitrario)
-            inseguridades[i][j] = distancia_euclidiana(coordenadas[i], coordenadas[j]) * 1
-    return costos, tiempos, inseguridades
+    return costos, tiempos
 
 def calcular_distancia_ruta(coordenadas, ruta):
     total = 0
@@ -131,7 +127,7 @@ def calcular_ruta():
     data = request.json
     partida = data['partida']
     destino = data['destino']
-    pesos = data.get('pesos', {'costo':1, 'tiempo':1, 'inseguridad':1})
+    pesos = data.get('pesos', {'costo':1, 'tiempo':1})
 
     coords_partida = geocode_ciudad(partida)
     coords_destino = geocode_ciudad(destino)
@@ -144,10 +140,10 @@ def calcular_ruta():
 
     dibujar_ruta_en_mapa(coordenadas)
 
-    costos, tiempos, inseguridades = calcular_distancias_matrices(coordenadas)
+    costos, tiempos = calcular_distancias_matrices(coordenadas)
 
     # Construimos grafos para Dijkstra y Manhattan con pesos ponderados
-    grafo = construir_grafo(coordenadas, costos, tiempos, inseguridades, pesos)
+    grafo = construir_grafo(coordenadas, costos, tiempos, pesos)
 
     # Dijkstra optimiza con pesos personalizados
     ruta_dijkstra, costo_dijkstra = dijkstra(grafo, 0, len(coordenadas)-1)
@@ -160,7 +156,7 @@ def calcular_ruta():
         for j in range(n):
             if i != j:
                 peso = (distancia_manhattan(coordenadas[i], coordenadas[j]) * 
-                        (pesos['costo'] + pesos['tiempo'] + pesos['inseguridad']) / 3)
+                        (pesos['costo'] + pesos['tiempo']) / 2)
                 grafo_manhattan[i][j] = peso
     ruta_manhattan, costo_manhattan = dijkstra(grafo_manhattan, 0, n-1)
 
